@@ -59,7 +59,7 @@ long hook_execve(const struct pt_regs *regs)
 
 long hook_reboot(const struct pt_regs *regs)
 {
-	return EFAULT;
+	return -EFAULT;
 }
 
 // Check get_mm_cmdline
