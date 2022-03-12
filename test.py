@@ -1,3 +1,4 @@
+#! /usr/bin/python3
 import os
 
 def test (condition):
@@ -12,7 +13,7 @@ os.system("rmmod rootkit")
 os.system("rm /dev/rootkit")
 
 os.system("insmod rootkit.ko")
-major = int(os.popen("dmesg").read().split("\n")[-7][-4:])
+major = int(os.popen("dmesg").read().split("\n")[-2][-4:])
 print(f"major = {major}")
 os.system(f"mknod /dev/rootkit c {major} 0")
 
