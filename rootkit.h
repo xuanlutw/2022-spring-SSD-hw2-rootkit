@@ -1,7 +1,7 @@
 #ifndef __ROOTKIT_HW2_H
 #define __ROOTKIT_HW2_H
 
-#define MASQ_LEN	20
+#define MASQ_LEN	16
 struct masq_proc {
 	char new_name[MASQ_LEN];
 	char orig_name[MASQ_LEN];
