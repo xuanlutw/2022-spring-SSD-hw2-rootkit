@@ -147,65 +147,21 @@ static void do_hide(void)
 	mutex_unlock(&is_hide_mutex);
 }
 
-/*
- * Check get_mm_cmdline
- */
-static int access_mm_name(struct mm_struct *mm, char *name, int len,
-						unsigned int gup_flags)
-{
-	unsigned long arg_start, arg_end;
-
-	if (!mm->env_end)
-		return 0;
-
-	spin_lock(&mm->arg_lock);
-	arg_start = mm->arg_start;
-	arg_end = mm->arg_end;
-	spin_unlock(&mm->arg_lock);
-
-	if (arg_start >= arg_end)
-		return 0;
-
-	return access_remote_vm_(mm, arg_start, name, len, gup_flags);
-}
-
-static void normalize_masq_proc(long len, struct masq_proc *masq_proc)
-{
-	long i, j;
-
-	for (i = 0; i < len; ++i) {
-		if (strlen(masq_proc[i].new_name) >
-			strlen(masq_proc[i].orig_name))
-			masq_proc[i].orig_name[0] = 0;
-		for (j = strlen(masq_proc[i].new_name);
-			j < strlen(masq_proc[i].orig_name); ++j)
-			masq_proc[i].new_name[j] = 0;
-	}
-}
-
 static void rename_process(struct task_struct *p, long len,
 						   struct masq_proc *masq_proc)
 {
 	long i;
-	struct mm_struct *mm;
 	char task_name[MASQ_LEN];
 
-	mm = p->mm;
-	if (!mm)
-		return;
-	access_mm_name(mm, task_name, MASQ_LEN, FOLL_GET);
-	task_name[MASQ_LEN - 1] = 0;
-
+	get_task_comm(task_name, p);
 	for (i = 0; i < len; ++i) {
 		if (!masq_proc[i].orig_name[0])
 			continue;
-		if (!strcmp(task_name, masq_proc[i].orig_name)) {
-			access_mm_name(mm, masq_proc[i].new_name,
-			   strlen(masq_proc[i].orig_name), FOLL_WRITE);
-			return;
+		if (!strcmp(masq_proc[i].orig_name, task_name)) {
+			// set_task_comm(task, masq_proc[i].new_name);
+			strcpy(p->comm, masq_proc[i].new_name);
 		}
 	}
-	// mmput(mm);
 }
 
 static long do_masq(struct masq_proc_req __user *masq_proc_req_user)
@@ -232,8 +188,6 @@ static long do_masq(struct masq_proc_req __user *masq_proc_req_user)
 		kfree(masq_proc);
 		return -EINVAL;
 	}
-
-	normalize_masq_proc(masq_proc_req.len, masq_proc);
 
 	read_lock(tasklist_lock_);
 	for_each_process(p) {

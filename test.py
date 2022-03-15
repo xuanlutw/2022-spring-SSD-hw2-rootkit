@@ -36,8 +36,8 @@ test("rootkit" in os.popen("lsmod").read())
 print("===== Test MASQ =====")
 
 os.system("./test MASQ < MASQ.in.1")
-log = os.popen("ps aux").read().split("\n")
-test("QQAAQQ" == log[1][-6:]) # No extrat char after it
+log = os.popen("ps -q 1 -o comm").read().split("\n")
+test("QQAAQQ" == log[1].strip())
 
 print("===== Test HOOK =====")
 
