@@ -15,9 +15,9 @@
 
 #define OURMODNAME	"rootkit"
 
-MODULE_AUTHOR("FOOBAR");
-MODULE_DESCRIPTION("FOOBAR");
-MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Chia-Hsuan Lu, Chen-Hao Liao, Wei-Lin Chang");
+MODULE_DESCRIPTION("rootkit");
+MODULE_LICENSE("Dual MIT/GPL");
 MODULE_VERSION("0.1");
 
 DEFINE_MUTEX(is_hide_mutex);
