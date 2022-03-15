@@ -56,7 +56,7 @@ log = os.popen("dmesg").read().split("\n")
 test("[SYSLOG] abcdefghij" in log[-4])
 
 print("===== Test UNHOOK =====")
-# exec should work after removed the rootkitmodule
+# exec should work after removed the rootkit module
 os.system("rmmod rootkit")
 os.system("rm /dev/rootkit")
 os.system("ls > /dev/null")
