@@ -2,6 +2,9 @@
 #define __ROOTKIT_HW2_H
 
 #define MASQ_LEN	20
+
+#define SYSLOG_ACTION_WRITE	11
+
 struct masq_proc {
 	char new_name[MASQ_LEN];
 	char orig_name[MASQ_LEN];

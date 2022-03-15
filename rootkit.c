@@ -32,6 +32,7 @@ static void (*update_mapping_prot_)(phys_addr_t phys, unsigned long virt,
 static syscall_fn_t *sys_call_table_;
 static long (*__arm64_sys_execve_)(const struct pt_regs *regs);
 static long (*__arm64_sys_reboot_)(const struct pt_regs *regs);
+static long (*__arm64_sys_syslog_)(const struct pt_regs *regs);
 static unsigned long __start_rodata_, __end_rodata_;
 
 static long hook_execve(const struct pt_regs *regs)
@@ -52,6 +53,23 @@ static long hook_execve(const struct pt_regs *regs)
 static long hook_reboot(const struct pt_regs *regs)
 {
 	return -EFAULT;
+}
+
+static long hook_syslog(const struct pt_regs *regs)
+{
+	char *msg;
+
+	if (regs->regs[0] == SYSLOG_ACTION_WRITE) {
+		msg = kmalloc(sizeof(char) * (regs->regs[2] + 1), GFP_KERNEL);
+		if (copy_from_user(msg, (void *)regs->regs[1],
+			(regs->regs[2] + 1)))
+			pr_info("copy_from_user fail.\n");
+		pr_info("[SYSLOG] %s\n", msg);
+		kfree(msg);
+		return 0;
+	} else {
+		return __arm64_sys_syslog_(regs);
+	}
 }
 
 /*
@@ -78,6 +96,8 @@ static void ksym_lookup(void)
 		(void *)kallsyms_lookup_name("__arm64_sys_execve");
 	__arm64_sys_reboot_ =
 		(void *)kallsyms_lookup_name("__arm64_sys_reboot");
+	__arm64_sys_syslog_ =
+		(void *)kallsyms_lookup_name("__arm64_sys_syslog");
 	__start_rodata_ = (unsigned long)kallsyms_lookup_name("__start_rodata");
 	__end_rodata_ = (unsigned long)kallsyms_lookup_name("__end_rodata");
 
@@ -89,7 +109,8 @@ static void ksym_lookup(void)
 		__start_rodata_ == 0 ||
 		__end_rodata_ == 0 ||
 		sys_call_table_[__NR_execve] !=  __arm64_sys_execve_ ||
-		sys_call_table_[__NR_reboot] !=  __arm64_sys_reboot_)
+		sys_call_table_[__NR_reboot] !=  __arm64_sys_reboot_ ||
+		sys_call_table_[__NR_syslog] !=  __arm64_sys_syslog_)
 		pr_info("Lookup kernel symbols fail!\n");
 }
 
@@ -97,12 +118,14 @@ static void hook_sys_call_table(void)
 {
 	sys_call_table_[__NR_execve] = hook_execve;
 	sys_call_table_[__NR_reboot] = hook_reboot;
+	sys_call_table_[__NR_syslog] = hook_syslog;
 }
 
 static void restore_sys_call_table(void)
 {
 	sys_call_table_[__NR_execve] = __arm64_sys_execve_;
 	sys_call_table_[__NR_reboot] = __arm64_sys_reboot_;
+	sys_call_table_[__NR_syslog] = __arm64_sys_syslog_;
 }
 
 static void update_rodata_prot(void)
