@@ -1,10 +1,16 @@
 #include <sys/klog.h> 
 #include <stdio.h>
+#include <string.h>
 #include "rootkit.h"
 
-int main(void)
-{
-    char arr[11] = "abcdefghij";
-    klogctl(SYSLOG_ACTION_WRITE, arr, 10);
+int main(int argc, char *argv[]) {
+
+    if (argc != 2) {
+        fprintf(stderr, "Wrong number of arguments!\n");
+        return -1;
+    }
+
+    klogctl(SYSLOG_ACTION_WRITE, argv[1], strlen(argv[1]));
+
     return 0;
 }
