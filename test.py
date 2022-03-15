@@ -48,9 +48,14 @@ test("exec /bin/sh"    in log[-5])
 test("exec /bin/ls"    in log[-4])
 test("exec /bin/sh"    in log[-3])
 test("exec /bin/dmesg" in log[-2])
-
 # TODO: How to test poweroff @@
 
+print("===== Test SYSLOG =====")
+os.system("./test_syslog")
+log = os.popen("dmesg").read().split("\n")
+test("[SYSLOG] abcdefghij" in log[-4])
+
+print("===== Test UNHOOK =====")
 # exec should work after removed the rootkitmodule
 os.system("rmmod rootkit")
 os.system("rm /dev/rootkit")
