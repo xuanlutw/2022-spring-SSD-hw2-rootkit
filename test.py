@@ -51,9 +51,9 @@ test("exec /bin/dmesg" in log[-2])
 # TODO: How to test poweroff @@
 
 print("===== Test SYSLOG =====")
-os.system("./test_syslog")
+os.system("./test_syslog rhythm")
 log = os.popen("dmesg").read().split("\n")
-test("[SYSLOG] abcdefghij" in log[-4])
+test("[SYSLOG] rhythm" in log[-4])
 
 print("===== Test UNHOOK =====")
 # exec should work after removed the rootkit module
